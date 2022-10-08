@@ -2,22 +2,22 @@ import csv
 import json
 import os
 import os.path
-import threading
 import time
 import traceback
 
 import openpyxl
-import requests
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from slugify import slugify
+from webdriver_manager.chrome import ChromeDriverManager
 
 url = "https://www.alibris.com"
 
 name = "AlIbris"
-
+debug = True
 encoding = "utf-8"
-thread_count = 1
-semaphore = threading.Semaphore(thread_count)
 
 
 def getData(book_url):
@@ -45,17 +45,16 @@ def getBook(href):
     if os.path.isfile(file):
         print(f"Already scraped {url}")
         return
-    with semaphore:
-        book_url = f"{url}{href}"
-        print("Working on", book_url)
-        try:
-            data = getData(book_url)
-            print(json.dumps(data, indent=4))
-            with open(file, 'w') as outfile:
-                json.dump(data, outfile, indent=4)
-        except:
-            traceback.print_exc()
-            print(f"Error on book url {href}")
+    book_url = f"{url}{href}"
+    print("Working on", book_url)
+    try:
+        data = getData(book_url)
+        print(json.dumps(data, indent=4))
+        with open(file, 'w') as outfile:
+            json.dump(data, outfile, indent=4)
+    except:
+        traceback.print_exc()
+        print(f"Error on book url {href}")
 
 
 def processCategory(href):
@@ -67,7 +66,7 @@ def processCategory(href):
 
 def startCategories():
     soup = getSoup('https://www.alibris.com/subjects')
-    cats = [a.get('href') for a in soup.find('table', {"id": "browse-subject"}).find_all('a')]
+    cats = [a.get('href') for a in soup.find('div', {"id": "browse-subject"}).find_all('a')]
     for cat in cats:
         processCategory(cat)
 
@@ -90,11 +89,17 @@ def getSoup(get_url):
     print(f"Fetching data from {get_url}")
     file = f"{name}/{slugify(get_url.replace(url, ''))}.html"
     if os.path.isfile(file):
-        print("Reading from file ", file)
+        print(f"Reading from file {file}")
         with open(file, 'r', encoding=encoding) as f:
             return BeautifulSoup(f.read(), 'lxml')
     else:
-        soup = BeautifulSoup(requests.get(get_url).text, "lxml")
+        driver.get(get_url)
+        time.sleep(1)
+        while "Checking if the site connection is secure" in driver.page_source:
+            print(driver.find_element(By.XPATH,'//*').text)
+            time.sleep(1)
+            # driver.get(get_url)
+        soup = BeautifulSoup(driver.page_source, "lxml")
         try:
             with open(file, 'w', encoding=encoding) as f:
                 f.write(soup.prettify())
@@ -130,6 +135,21 @@ def convert(filename):
     wb.save(filename.replace("csv", "xlsx"))
 
 
+def getChromeDriver():
+    options = webdriver.ChromeOptions()
+    if debug:
+        # print("Connecting existing Chrome for debugging...")
+        options.debugger_address = "127.0.0.1:9222"
+    else:
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("excludeSwitches", ["enable-logging"])
+        options.add_experimental_option('useAutomationExtension', False)
+        options.add_argument("--disable-blink-features")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument('--user-data-dir=C:/Selenium1/ChromeProfile')
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+
 def logo():
     print(fr"""
                _____ ___.         __________               __            
@@ -149,4 +169,5 @@ ________________________________________________________________________________
 
 
 if __name__ == '__main__':
+    driver = getChromeDriver()
     main()
